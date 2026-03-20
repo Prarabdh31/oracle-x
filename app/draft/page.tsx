@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast"; // <-- Using toasts now
 import {
   DndContext,
   closestCenter,
@@ -62,50 +63,44 @@ function SortableTeamRow({
 
   const isPlayoff = index < 4;
 
-  // Map state directly to our new flawless CSS classes
   let containerStyle = "border-2 border-gray-800 bg-gray-900";
+  if (isFav) containerStyle = "fav-moving-border";
+  else if (isPower) containerStyle = "pwr-moving-border";
+  else if (isPlayoff) containerStyle = "border-2 border-blue-500/50 bg-gray-900";
 
-  if (isFav) {
-    containerStyle = "fav-moving-border";
-  } else if (isPower) {
-    containerStyle = "pwr-moving-border";
-  } else if (isPlayoff) {
-    containerStyle = "border-2 border-blue-500/50 bg-gray-900";
-  }
-
-  const finalStyle = `relative flex items-center justify-between p-3 rounded-xl transition-all duration-200 ${containerStyle} ${
+  const finalStyle = `relative flex items-center justify-between p-2 rounded-xl transition-all duration-200 ${containerStyle} ${
     isDragging ? "scale-105 opacity-90 shadow-2xl" : ""
   } ${isLocked ? "opacity-75" : ""}`;
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={finalStyle}
-    >
-      {/* Left Side: Drag Handle & Info */}
-      <div className="flex items-center gap-3" {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className={finalStyle}>
+      {/* Left Side: Drag Handle & Info - Added touch-none and select-none to fix mobile dragging */}
+      <div className="flex items-center gap-2 overflow-hidden w-[50%]" >
         {!isLocked && (
-          <div className="text-gray-600 cursor-grab active:cursor-grabbing px-1">
+          <div 
+            className="text-gray-500 cursor-grab active:cursor-grabbing px-2 py-2 touch-none select-none"
+            {...attributes} 
+            {...listeners}
+          >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
             </svg>
           </div>
         )}
-        <span className={`text-xl font-black w-6 text-center ${isPlayoff ? "text-blue-400" : "text-gray-500"}`}>
+        <span className={`text-lg font-black w-4 shrink-0 text-center ${isPlayoff ? "text-blue-400" : "text-gray-500"}`}>
           {index + 1}
         </span>
-        {team.logo_url && <img src={team.logo_url} alt={team.short_name} className="w-8 h-8 object-contain" />}
-        <p className="font-bold text-white text-lg tracking-wide">{team.short_name}</p>
+        {team.logo_url && <img src={team.logo_url} alt={team.short_name} className="w-6 h-6 object-contain shrink-0 ml-1" />}
+        <p className="font-bold text-white text-sm tracking-wide truncate">{team.short_name}</p>
       </div>
 
-      {/* Right Side: Power-ups & Fallback Arrows */}
-      <div className="flex items-center gap-2 relative z-10">
+      {/* Right Side: Slimmer Power-ups & Fallback Arrows */}
+      <div className="flex items-center gap-1.5 relative z-10 shrink-0">
         <button
           onClick={onFavToggle}
           disabled={isLocked || isPower}
-          className={`text-[10px] font-black px-2.5 py-1.5 rounded-md transition-all ${
-            isFav ? "bg-cyan-500 text-black shadow-[0_0_10px_rgba(6,182,212,0.8)]" : "bg-gray-800 text-gray-400"
+          className={`text-[9px] font-black px-2 py-1.5 rounded transition-all ${
+            isFav ? "bg-cyan-500 text-black shadow-[0_0_8px_rgba(6,182,212,0.8)]" : "bg-gray-800 text-gray-400"
           } disabled:opacity-30`}
         >
           2x FAV
@@ -113,47 +108,37 @@ function SortableTeamRow({
         <button
           onClick={onPowerToggle}
           disabled={isLocked || isFav}
-          className={`text-[10px] font-black px-2.5 py-1.5 rounded-md transition-all ${
-            isPower ? "bg-yellow-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.8)]" : "bg-gray-800 text-gray-400"
+          className={`text-[9px] font-black px-2 py-1.5 rounded transition-all ${
+            isPower ? "bg-yellow-500 text-black shadow-[0_0_8px_rgba(234,179,8,0.8)]" : "bg-gray-800 text-gray-400"
           } disabled:opacity-30`}
         >
           3x PWR
         </button>
 
         {!isLocked && (
-          <div className="flex flex-col ml-1 gap-1">
-            <button onClick={moveUp} className="bg-gray-800 rounded px-1.5 py-0.5 text-xs text-gray-400 hover:text-white hover:bg-gray-700">▲</button>
-            <button onClick={moveDown} className="bg-gray-800 rounded px-1.5 py-0.5 text-xs text-gray-400 hover:text-white hover:bg-gray-700">▼</button>
+          <div className="flex flex-col ml-1 gap-0.5">
+            <button onClick={moveUp} className="bg-gray-800 rounded px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white">▲</button>
+            <button onClick={moveDown} className="bg-gray-800 rounded px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white">▼</button>
           </div>
         )}
       </div>
 
-      {/* THE FIX: Pure Native CSS Background Clip Borders */}
-      {/* This ensures mathematically perfect 2px borders everywhere that never break, with flowing energy animation */}
       <style jsx global>{`
         @keyframes flow-energy {
           0% { background-position: 0% 0%, 0% 50%; }
           100% { background-position: 0% 0%, 200% 50%; }
         }
-
         .fav-moving-border {
           border: 2px solid transparent;
-          background:
-            linear-gradient(#061019, #061019) padding-box, /* The tinted inner container */
-            linear-gradient(90deg, #06B6D4, #022C22, #06B6D4, #022C22, #06B6D4) border-box; /* The moving border */
+          background: linear-gradient(#061019, #061019) padding-box, linear-gradient(90deg, #06B6D4, #022C22, #06B6D4, #022C22, #06B6D4) border-box;
           background-size: 100% 100%, 200% 100%;
           animation: flow-energy 2s linear infinite;
-          box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
         }
-
         .pwr-moving-border {
           border: 2px solid transparent;
-          background:
-            linear-gradient(#141005, #141005) padding-box, /* The tinted inner container */
-            linear-gradient(90deg, #EAB308, #422006, #EAB308, #422006, #EAB308) border-box; /* The moving border */
+          background: linear-gradient(#141005, #141005) padding-box, linear-gradient(90deg, #EAB308, #422006, #EAB308, #422006, #EAB308) border-box;
           background-size: 100% 100%, 200% 100%;
           animation: flow-energy 2s linear infinite;
-          box-shadow: 0 0 15px rgba(234, 179, 8, 0.4);
         }
       `}</style>
     </div>
@@ -178,9 +163,10 @@ export default function DraftPage() {
   const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
   const router = useRouter();
 
+  // Mobile optimized sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
@@ -312,11 +298,13 @@ export default function DraftPage() {
   };
 
   const handleSavePredictions = async () => {
-    if (isLocked) return alert("Predictions are locked.");
-    if (!favouriteTeamId || !powerTeamId) return alert("Select both a 2x FAV and a 3x PWR team!");
-    if (!finalist1Id || !finalist2Id || !winnerId) return alert("Complete your Knockout Stage predictions!");
+    if (isLocked) return toast.error("Predictions are locked.");
+    if (!favouriteTeamId || !powerTeamId) return toast.error("Select both a 2x FAV and a 3x PWR team!");
+    if (!finalist1Id || !finalist2Id || !winnerId) return toast.error("Complete your Knockout Stage predictions!");
 
     setSaving(true);
+    const toastId = toast.loading('Saving Protocol...');
+    
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
@@ -345,10 +333,10 @@ export default function DraftPage() {
       const { error: knockoutError } = await supabase.from("knockout_predictions").insert(knockoutPrediction);
       if (knockoutError) throw knockoutError;
 
-      alert("Awesome! Your Oracle Table is locked in.");
+      toast.success("Oracle Table Locked In!", { id: toastId });
     } catch (error: any) {
       console.error("Save error:", error);
-      alert("Failed to save: " + error.message);
+      toast.error("Failed to save: " + error.message, { id: toastId });
     } finally {
       setSaving(false);
     }
@@ -360,38 +348,32 @@ export default function DraftPage() {
 
   return (
     <div className="min-h-screen bg-[#050814] text-white pb-32 relative overflow-hidden">
-      
-      {/* Background Ambience */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-blue-900/20 blur-[150px] pointer-events-none rounded-full"></div>
 
-      {/* Global Glass Header */}
       <div className="sticky top-0 z-40 bg-[#050814]/80 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <img src="/oracle-logo.png" alt="Oracle X" className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]" />
           <span className="font-black text-lg tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-cyan-300">DRAFT HQ</span>
         </div>
-        <div className={`px-4 py-1.5 rounded-full text-xs font-black tracking-wider transition-colors ${
-          isLocked ? 'bg-red-500/20 text-red-500 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+        <div className={`px-3 py-1.5 rounded-full text-[10px] font-black tracking-wider transition-colors ${
+          isLocked ? 'bg-red-500/20 text-red-500 border border-red-500/50' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
         }`}>
           {timeLeft}
         </div>
       </div>
 
       <div className="max-w-md mx-auto p-4 relative z-10">
-        
-        {/* Title & Info Trigger */}
-        <div className="flex justify-between items-end mb-6 mt-4">
+        <div className="flex justify-between items-end mb-6 mt-2">
           <div>
-            <h1 className="text-3xl font-black mb-1">League Table</h1>
-            <p className="text-gray-400 text-sm font-medium">Drag to rank. Activate power-ups.</p>
+            <h1 className="text-2xl font-black mb-1">League Table</h1>
+            <p className="text-gray-400 text-xs font-medium">Drag to rank. Activate power-ups.</p>
           </div>
-          <button onClick={() => setShowInfo(true)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-cyan-400 hover:bg-white/10 transition-colors">
+          <button onClick={() => setShowInfo(true)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-cyan-400 hover:bg-white/10">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </button>
         </div>
 
-        {/* Drag & Drop Context */}
-        <div className="bg-black/40 border border-white/5 p-2 rounded-2xl mb-10 shadow-2xl relative">
+        <div className="bg-black/40 border border-white/5 p-2 rounded-2xl mb-8 shadow-2xl relative">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={teams.map(t => t.id)} strategy={verticalListSortingStrategy}>
               <div className="space-y-2">
@@ -414,14 +396,13 @@ export default function DraftPage() {
           </DndContext>
         </div>
 
-        {/* Knockout Stage UI */}
-        <div className="bg-black/40 border border-white/5 rounded-3xl p-6 mb-6 relative overflow-hidden">
+        <div className="bg-black/40 border border-white/5 rounded-3xl p-5 mb-8 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 blur-[50px]"></div>
           
-          <h2 className="text-2xl font-black mb-1 text-white">Knockout Arena</h2>
-          <p className="text-xs text-gray-400 mb-6 uppercase tracking-wider font-semibold">Select 2 Finalists from your Top 4</p>
+          <h2 className="text-xl font-black mb-1 text-white">Knockout Arena</h2>
+          <p className="text-[10px] text-gray-400 mb-6 uppercase tracking-wider font-semibold">Select 2 Finalists from your Top 4</p>
           
-          <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="grid grid-cols-2 gap-3 mb-6">
             {top4Teams.map(team => {
               const isSelected = finalist1Id === team.id || finalist2Id === team.id;
               return (
@@ -429,23 +410,21 @@ export default function DraftPage() {
                   key={team.id}
                   onClick={() => toggleFinalist(team.id)}
                   disabled={isLocked || (!isSelected && finalist1Id !== null && finalist2Id !== null)}
-                  className={`flex flex-col items-center gap-2 py-4 rounded-2xl transition-all border-2 ${
-                    isSelected 
-                      ? 'bg-blue-600/20 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-105' 
-                      : 'bg-gray-900/50 border-gray-800 hover:bg-gray-800'
+                  className={`flex flex-col items-center gap-2 py-3 rounded-xl transition-all border-2 ${
+                    isSelected ? 'bg-blue-600/20 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-105' : 'bg-gray-900/50 border-gray-800'
                   } disabled:opacity-50`}
                 >
-                  <img src={team.logo_url} alt="" className="w-12 h-12 object-contain drop-shadow-lg" />
-                  <span className={`font-bold text-sm ${isSelected ? 'text-white' : 'text-gray-400'}`}>{team.short_name}</span>
+                  <img src={team.logo_url} alt="" className="w-10 h-10 object-contain drop-shadow-lg" />
+                  <span className={`font-bold text-xs ${isSelected ? 'text-white' : 'text-gray-400'}`}>{team.short_name}</span>
                 </button>
               );
             })}
           </div>
 
           {(finalist1Id || finalist2Id) && (
-            <div className="pt-6 border-t border-white/5 animate-fade-in">
-              <p className="text-xs text-yellow-500 mb-4 text-center font-black uppercase tracking-widest">Crown the Champion</p>
-              <div className="flex justify-center gap-4">
+            <div className="pt-5 border-t border-white/5 animate-fade-in">
+              <p className="text-[10px] text-yellow-500 mb-4 text-center font-black uppercase tracking-widest">Crown the Champion</p>
+              <div className="flex justify-center gap-3">
                 {[finalist1Id, finalist2Id].map(id => {
                   if (!id) return null;
                   const team = teams.find(t => t.id === id);
@@ -455,14 +434,12 @@ export default function DraftPage() {
                       key={id}
                       onClick={() => !isLocked && setWinnerId(id)}
                       disabled={isLocked}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-2xl transition-all border-2 w-32 ${
-                        isWinner 
-                          ? 'bg-yellow-500/20 border-yellow-500 scale-110 shadow-[0_0_30px_rgba(234,179,8,0.4)] z-10' 
-                          : 'bg-gray-900/50 border-gray-800 opacity-60 hover:opacity-100'
+                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl transition-all border-2 w-28 ${
+                        isWinner ? 'bg-yellow-500/20 border-yellow-500 scale-110 shadow-[0_0_20px_rgba(234,179,8,0.4)] z-10' : 'bg-gray-900/50 border-gray-800 opacity-60 hover:opacity-100'
                       }`}
                     >
-                      <img src={team?.logo_url} alt="" className="w-14 h-14 object-contain drop-shadow-xl" />
-                      <span className={`font-black ${isWinner ? 'text-yellow-500' : 'text-gray-400'}`}>{team?.short_name}</span>
+                      <img src={team?.logo_url} alt="" className="w-10 h-10 object-contain drop-shadow-xl" />
+                      <span className={`font-black text-xs ${isWinner ? 'text-yellow-500' : 'text-gray-400'}`}>{team?.short_name}</span>
                     </button>
                   );
                 })}
@@ -471,15 +448,15 @@ export default function DraftPage() {
           )}
         </div>
 
-        {/* Floating Save Dock */}
-        <div className="fixed bottom-28 left-0 right-0 p-4 bg-gradient-to-t from-[#050814] via-[#050814]/90 to-transparent z-40">
+        {/* STATIC BUTTON AT BOTTOM OF CONTENT (No longer floating) */}
+        <div className="mt-8 mb-6">
           <button 
             onClick={handleSavePredictions}
             disabled={saving || isLocked}
-            className={`w-full max-w-md mx-auto flex items-center justify-center py-4 font-black tracking-wide rounded-2xl transition-all shadow-2xl ${
+            className={`w-full flex items-center justify-center py-4 font-black tracking-wide rounded-2xl transition-all shadow-xl ${
               isLocked 
                 ? "bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed" 
-                : "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/50 hover:shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                : "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border border-cyan-400/50 hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-95"
             }`}
           >
             {isLocked ? (
@@ -487,27 +464,25 @@ export default function DraftPage() {
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                 DATABASE LOCKED
               </>
-            ) : saving ? "SAVING PROTOCOL..." : "SAVE ORACLE PREDICTIONS"}
+            ) : "SAVE ORACLE PREDICTIONS"}
           </button>
         </div>
+
       </div>
 
-      {/* Info Modal Overlay */}
+      {/* Info Modal */}
       {showInfo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0f1423] border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
-            <button onClick={() => setShowInfo(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-            <h3 className="text-xl font-black text-white mb-4">Intelligence Briefing</h3>
-            <div className="space-y-4 text-sm text-gray-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setShowInfo(false)}>
+          <div className="bg-[#0f1423] border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-white mb-4">Intelligence Briefing</h3>
+            <div className="space-y-4 text-xs text-gray-300">
               <p><strong className="text-white">Base Scoring:</strong> 100 points per team. Lose 10 pts for every spot your prediction is off from reality.</p>
               <div className="flex gap-2">
-                <span className="bg-cyan-500 text-black font-black px-2 py-0.5 rounded text-xs">2x FAV</span>
+                <span className="bg-cyan-500 text-black font-black px-2 py-0.5 rounded text-[10px]">2x FAV</span>
                 <p>Doubles the final points for this team.</p>
               </div>
               <div className="flex gap-2">
-                <span className="bg-yellow-500 text-black font-black px-2 py-0.5 rounded text-xs">3x PWR</span>
+                <span className="bg-yellow-500 text-black font-black px-2 py-0.5 rounded text-[10px]">3x PWR</span>
                 <p>Triples the final points. Choose wisely.</p>
               </div>
               <div className="h-px bg-white/10 my-2"></div>

@@ -325,14 +325,6 @@ export default function OpponentTeamPage() {
             </div>
           </div>
         )}
-        
-        {/* Floating Return Button */}
-        <div className="fixed bottom-28 left-0 right-0 p-4 bg-gradient-to-t from-[#050814] via-[#050814]/90 to-transparent z-40 pb-safe">
-          <Link href="/" className="w-full max-w-md mx-auto flex items-center justify-center py-4 font-black tracking-wide rounded-2xl bg-gray-900 border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition-all shadow-2xl">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-            BACK TO GLOBAL STANDINGS
-          </Link>
-        </div>
       </div>
 
       {/* DRILLDOWN MODAL (Math Inspector) */}
