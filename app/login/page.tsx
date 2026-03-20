@@ -3,54 +3,70 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  
+  // Registration Fields
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [entryName, setEntryName] = useState("");
+
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [isSignUp, setIsSignUp] = useState(false); // Toggle state
   const router = useRouter();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
+    
+    const toastId = toast.loading(isSignUp ? "Forging Identity..." : "Authenticating...");
 
-    if (isSignUp) {
-      // Handle Sign Up
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
+    try {
+      if (isSignUp) {
+        // Handle Sign Up
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
 
-      if (error) {
-        setError(error.message);
-      } else {
+        if (error) throw error;
+
         if (data.user) {
-          await supabase.from("profiles").insert([
+          const { error: profileError } = await supabase.from("profiles").upsert([
             {
               id: data.user.id,
               username: email.split("@")[0],
+              first_name: firstName,
+              last_name: lastName,
+              entry_name: entryName,
             },
           ]);
+          
+          if (profileError) throw profileError;
         }
-        router.push("/draft");
-      }
-    } else {
-      // Handle Sign In
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        setError(error.message);
+        
+        toast.success("Registration Successful! Welcome to the Arena.", { id: toastId });
+        router.push("/profile"); // Direct to profile so they can pick an avatar
       } else {
+        // Handle Sign In
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) throw error;
+        
+        toast.success("Access Granted. Welcome back.", { id: toastId });
         router.push("/draft");
       }
+    } catch (error: any) {
+      toast.error(error.message, { id: toastId });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -80,13 +96,49 @@ export default function Login() {
             {isSignUp ? "Enter the Arena" : "Welcome Back"}
           </h2>
 
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-3 rounded-xl mb-6 text-center backdrop-blur-md">
-              {error}
-            </div>
-          )}
-
           <form onSubmit={handleAuth} className="space-y-5">
+            
+            {/* Dynamic Registration Fields */}
+            {isSignUp && (
+              <>
+                <div className="flex gap-3">
+                  <div className="w-1/2">
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 ml-1">First Name</label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-black/40 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                      placeholder="MS"
+                      required
+                    />
+                  </div>
+                  <div className="w-1/2">
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 ml-1">Last Name</label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="w-full px-4 py-3.5 bg-black/40 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                      placeholder="Dhoni"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 ml-1">Team Display Name</label>
+                  <input
+                    type="text"
+                    value={entryName}
+                    onChange={(e) => setEntryName(e.target.value)}
+                    className="w-full px-4 py-3.5 bg-black/40 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                    placeholder="e.g., The Chennai Kings"
+                    required
+                  />
+                </div>
+              </>
+            )}
+
             <div>
               <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 ml-1">
                 Email Address
@@ -136,10 +188,7 @@ export default function Login() {
           {/* Seamless Toggle */}
           <div className="mt-6 text-center">
             <button
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError(null);
-              }}
+              onClick={() => setIsSignUp(!isSignUp)}
               className="text-sm text-gray-400 hover:text-cyan-400 transition-colors focus:outline-none"
             >
               {isSignUp 
