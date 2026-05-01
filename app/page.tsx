@@ -14,6 +14,7 @@ interface Profile {
   score?: number;
   fav_team_logo?: string | null;
   pwr_team_logo?: string | null;
+  rankDelta?: number | null;
 }
 
 // Custom Hook for Animated Score Counting
@@ -42,6 +43,40 @@ function AnimatedScore({ score }: { score: number }) {
   return <>{displayScore}</>;
 }
 
+function RankDeltaBadge({ delta, compact = false, fill = false }: { delta: number | null | undefined; compact?: boolean; fill?: boolean }) {
+  if (delta === null || delta === undefined) return null;
+
+  const base = compact
+    ? `flex flex-row items-center justify-center gap-0.5 rounded-lg px-1.5 ${fill ? "self-stretch" : "py-1"}`
+    : "flex flex-row items-center gap-1 rounded-xl px-2 py-1.5";
+  const iconSize = compact ? "w-2.5 h-2.5" : "w-3.5 h-3.5";
+  const textSize = compact ? "text-[9px]" : "text-[11px]";
+
+  if (delta > 0) return (
+    <div className={`${base} bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_10px_rgba(52,211,153,0.12)]`}>
+      <svg className={`${iconSize} text-emerald-400 drop-shadow-[0_0_4px_rgba(52,211,153,0.8)]`} fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+      </svg>
+      <span className={`${textSize} font-black text-emerald-400 leading-none`}>+{delta}</span>
+    </div>
+  );
+
+  if (delta < 0) return (
+    <div className={`${base} bg-red-500/10 border border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.1)]`}>
+      <svg className={`${iconSize} text-red-400 drop-shadow-[0_0_4px_rgba(239,68,68,0.8)]`} fill="currentColor" viewBox="0 0 20 20">
+        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+      </svg>
+      <span className={`${textSize} font-black text-red-400 leading-none`}>{delta}</span>
+    </div>
+  );
+
+  return (
+    <div className={`${base} bg-gray-800/40 border border-gray-700/30`}>
+      <span className={`${textSize} font-black text-gray-600`}>—</span>
+    </div>
+  );
+}
+
 export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<Profile[]>([]);
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
@@ -64,7 +99,8 @@ export default function LeaderboardPage() {
       { data: knockoutPreds },
       { data: actualStandings },
       { data: actualKnockoutsData },
-      { data: settingsData }
+      { data: settingsData },
+      { data: snapshotData }
     ] = await Promise.all([
       supabase.from("profiles").select("*"),
       supabase.from("teams").select("*"),
@@ -72,12 +108,22 @@ export default function LeaderboardPage() {
       supabase.from("knockout_predictions").select("*"),
       supabase.from("actual_standings").select("*"),
       supabase.from("actual_knockouts").select("*").eq("id", 1).maybeSingle(),
-      supabase.from("system_settings").select("*").eq("id", 1).maybeSingle()
+      supabase.from("system_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("leaderboard_snapshots").select("user_id, rank")
     ]);
 
     if (!profiles || !leaguePreds || !actualStandings || !teamsData) {
       setLoading(false);
       return;
+    }
+
+    // Build previous rank lookup from snapshot
+    const previousRankMap: Record<string, number> = {};
+    const hasSnapshot = !!(snapshotData && snapshotData.length > 0);
+    if (hasSnapshot) {
+      (snapshotData as { user_id: string; rank: number }[]).forEach((row) => {
+        previousRankMap[row.user_id] = row.rank;
+      });
     }
 
     // Privacy logic
@@ -107,9 +153,7 @@ export default function LeaderboardPage() {
     const calculatedProfiles = profiles.map((profile: Profile) => {
       let totalScore = 0;
       const userLeaguePreds = leaguePreds.filter((p) => p.user_id === profile.id);
-      const userTop4 = new Set<number>();
-      let userBottomTeamId: number | null = null;
-      
+
       // Grab Fav and Power Teams for the UI
       const favPred = userLeaguePreds.find(p => p.multiplier === 2);
       const pwrPred = userLeaguePreds.find(p => p.multiplier === 3);
@@ -117,33 +161,29 @@ export default function LeaderboardPage() {
       const pwrTeamLogo = teamsData.find(t => t.id === pwrPred?.team_id)?.logo_url || null;
 
       userLeaguePreds.forEach((pred) => {
-        if (pred.predicted_position <= 4) userTop4.add(pred.team_id);
-        if (pred.predicted_position === 10) userBottomTeamId = pred.team_id;
-
         const actualPos = actualMap[pred.team_id];
         if (actualPos) {
           const positionDifference = Math.abs(actualPos - pred.predicted_position);
           const basePoints = 100 - (positionDifference * 10);
-          totalScore += (basePoints * pred.multiplier);
 
-          // Battlefield Bonus — independent of multiplier
+          // Battlefield Bonus
+          let battlefieldBonus = 0;
           const standingData = standingsMap[pred.team_id];
           if (standingData) {
             const tps = Math.max(0, standingData.points + standingData.nrr * 10);
-            const delta = positionDifference;
-            const pf = 1 / (1 + (delta * delta) / 2);
-            totalScore += Math.round(tps * pf);
+            const pf = 1 / (1 + (positionDifference * positionDifference) / 2);
+            battlefieldBonus = Math.round(tps * pf);
           }
+
+          // Per-team positional bonuses
+          let teamBonus = 0;
+          if (pred.predicted_position <= 4 && actualTop4.has(pred.team_id)) teamBonus += 50;
+          if (pred.predicted_position === 10 && pred.team_id === actualBottomTeamId) teamBonus += 50;
+
+          // Multiplier applied to everything: base + battlefield + positional bonus
+          totalScore += Math.round((basePoints + battlefieldBonus + teamBonus) * pred.multiplier);
         }
       });
-
-      userTop4.forEach(teamId => {
-        if (actualTop4.has(teamId)) totalScore += 50;
-      });
-
-      if (userBottomTeamId && userBottomTeamId === actualBottomTeamId) {
-        totalScore += 50;
-      }
 
       const userKnockout = knockoutPreds?.find((k) => k.user_id === profile.id);
       if (userKnockout && actualKnockoutsData) {
@@ -163,6 +203,15 @@ export default function LeaderboardPage() {
 
     // Hide disqualified entries (no predictions submitted — score stays 0)
     const activeProfiles = calculatedProfiles.filter(p => (p.score || 0) > 0);
+
+    // Attach rank deltas (previousRank - currentRank: positive = moved up)
+    activeProfiles.forEach((profile, index) => {
+      const currentRank = index + 1;
+      profile.rankDelta = hasSnapshot && previousRankMap[profile.id] !== undefined
+        ? previousRankMap[profile.id] - currentRank
+        : null;
+    });
+
     setLeaderboard(activeProfiles);
 
     // Find Current User for Sticky Footer (search all profiles, not just active)
@@ -243,9 +292,12 @@ export default function LeaderboardPage() {
                     <p className="font-black text-[11px] text-gray-200 text-center leading-tight w-full break-words">{top3[1].entry_name || top3[1].username}</p>
                     {top3[1].first_name && <p className="text-[9px] text-gray-500 font-semibold mt-0.5">{top3[1].first_name}</p>}
                     <div className="mt-1 flex flex-wrap gap-1 justify-center">{renderPowerBadges(top3[1])}</div>
-                    <div className="mt-2 bg-gray-800/80 border border-gray-600/50 rounded-lg px-2 py-1 text-center w-full">
-                      <p className="font-black text-sm text-gray-100 leading-none tabular-nums"><AnimatedScore score={top3[1].score || 0} /></p>
-                      <p className="text-[7px] text-gray-500 font-black tracking-widest mt-0.5">PTS</p>
+                    <div className="mt-2 flex items-center gap-1.5 w-full">
+                      <div className="bg-gray-800/80 border border-gray-600/50 rounded-lg px-2 py-1 text-center flex-1">
+                        <p className="font-black text-sm text-gray-100 leading-none tabular-nums"><AnimatedScore score={top3[1].score || 0} /></p>
+                        <p className="text-[7px] text-gray-500 font-black tracking-widest mt-0.5">PTS</p>
+                      </div>
+                      <RankDeltaBadge delta={top3[1].rankDelta} compact fill />
                     </div>
                   </div>
                   <div className="w-full h-12 rounded-t-xl bg-gradient-to-b from-gray-300 to-gray-500 flex items-center justify-center shadow-[0_-4px_16px_rgba(156,163,175,0.25)]">
@@ -266,9 +318,12 @@ export default function LeaderboardPage() {
                     <p className="font-black text-sm text-yellow-400 text-center leading-tight w-full break-words">{top3[0].entry_name || top3[0].username}</p>
                     {top3[0].first_name && <p className="text-[9px] text-gray-300 font-semibold mt-0.5">{top3[0].first_name} {top3[0].last_name}</p>}
                     <div className="mt-1 flex flex-wrap gap-1 justify-center">{renderPowerBadges(top3[0])}</div>
-                    <div className="mt-2 bg-yellow-500/15 border border-yellow-500/40 rounded-xl px-3 py-1.5 text-center w-full">
-                      <p className="font-black text-lg text-yellow-400 leading-none tabular-nums drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]"><AnimatedScore score={top3[0].score || 0} /></p>
-                      <p className="text-[7px] text-yellow-600 font-black tracking-widest mt-0.5">PTS</p>
+                    <div className="mt-2 flex items-center gap-1.5 w-full">
+                      <div className="bg-yellow-500/15 border border-yellow-500/40 rounded-xl px-3 py-1.5 text-center flex-1">
+                        <p className="font-black text-lg text-yellow-400 leading-none tabular-nums drop-shadow-[0_0_8px_rgba(234,179,8,0.4)]"><AnimatedScore score={top3[0].score || 0} /></p>
+                        <p className="text-[7px] text-yellow-600 font-black tracking-widest mt-0.5">PTS</p>
+                      </div>
+                      <RankDeltaBadge delta={top3[0].rankDelta} compact fill />
                     </div>
                   </div>
                   <div className="w-full h-20 rounded-t-xl bg-gradient-to-b from-yellow-400 to-yellow-600 flex items-center justify-center shadow-[0_-4px_24px_rgba(234,179,8,0.35)]">
@@ -286,9 +341,12 @@ export default function LeaderboardPage() {
                     <p className="font-black text-[11px] text-amber-400 text-center leading-tight w-full break-words">{top3[2].entry_name || top3[2].username}</p>
                     {top3[2].first_name && <p className="text-[9px] text-gray-500 font-semibold mt-0.5">{top3[2].first_name}</p>}
                     <div className="mt-1 flex flex-wrap gap-1 justify-center">{renderPowerBadges(top3[2])}</div>
-                    <div className="mt-2 bg-amber-900/40 border border-amber-600/40 rounded-lg px-2 py-1 text-center w-full">
-                      <p className="font-black text-sm text-amber-400 leading-none tabular-nums"><AnimatedScore score={top3[2].score || 0} /></p>
-                      <p className="text-[7px] text-amber-700 font-black tracking-widest mt-0.5">PTS</p>
+                    <div className="mt-2 flex items-center gap-1.5 w-full">
+                      <div className="bg-amber-900/40 border border-amber-600/40 rounded-lg px-2 py-1 text-center flex-1">
+                        <p className="font-black text-sm text-amber-400 leading-none tabular-nums"><AnimatedScore score={top3[2].score || 0} /></p>
+                        <p className="text-[7px] text-amber-700 font-black tracking-widest mt-0.5">PTS</p>
+                      </div>
+                      <RankDeltaBadge delta={top3[2].rankDelta} compact fill />
                     </div>
                   </div>
                   <div className="w-full h-7 rounded-t-xl bg-gradient-to-b from-amber-500 to-amber-700 flex items-center justify-center shadow-[0_-4px_12px_rgba(217,119,6,0.25)]">
@@ -327,15 +385,18 @@ export default function LeaderboardPage() {
                 </div>
               </div>
 
-              <div className="text-right">
-                <p className="text-2xl font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.3)]">
-                  <AnimatedScore score={user.score || 0} />
-                </p>
-                <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">PTS</p>
+              <div className="flex items-center gap-3 shrink-0">
+                <RankDeltaBadge delta={user.rankDelta} />
+                <div className="text-right min-w-[54px]">
+                  <p className="text-2xl font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.3)]">
+                    <AnimatedScore score={user.score || 0} />
+                  </p>
+                  <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">PTS</p>
+                </div>
               </div>
             </Link>
           ))}
-          
+
           {leaderboard.length === 0 && (
             <div className="text-center p-8 bg-black/40 rounded-2xl border border-white/5 text-gray-500 font-semibold">
               The Arena is currently empty.
@@ -362,6 +423,7 @@ export default function LeaderboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 pr-1">
+              <RankDeltaBadge delta={(currentUser as any).rankDelta} />
               <div className="text-right">
                 <p className="text-xl font-black text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]">
                   {currentUser.score}

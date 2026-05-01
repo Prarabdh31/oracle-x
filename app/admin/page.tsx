@@ -149,6 +149,91 @@ export default function AdminPage() {
     setSaving(true);
     const toastId = toast.loading("Encrypting & Uploading...");
     try {
+      // ── Snapshot current ranks before overwriting ────────────────────────────
+      const [
+        { data: snapProfiles },
+        { data: snapLeaguePreds },
+        { data: snapKnockoutPreds },
+        { data: snapStandings },
+        { data: snapKnockouts },
+      ] = await Promise.all([
+        supabase.from("profiles").select("id"),
+        supabase.from("league_predictions").select("user_id, team_id, predicted_position, multiplier"),
+        supabase.from("knockout_predictions").select("user_id, finalist_1_id, finalist_2_id, winner_id"),
+        supabase.from("actual_standings").select("team_id, current_position, points, net_run_rate"),
+        supabase.from("actual_knockouts").select("*").eq("id", 1).maybeSingle(),
+      ]);
+
+      if (snapProfiles?.length && snapLeaguePreds?.length && snapStandings?.length) {
+        const snapActualMap: Record<number, number> = {};
+        const snapStandingsMap: Record<number, { points: number; nrr: number }> = {};
+        const snapTop4 = new Set<number>();
+        let snapBottom: number | null = null;
+
+        snapStandings.forEach((s: any) => {
+          snapActualMap[s.team_id] = s.current_position;
+          snapStandingsMap[s.team_id] = { points: s.points || 0, nrr: s.net_run_rate || 0 };
+          if (s.current_position <= 4) snapTop4.add(s.team_id);
+          if (s.current_position === 10) snapBottom = s.team_id;
+        });
+
+        const snapScored = snapProfiles.map((profile: any) => {
+          let score = 0;
+          const preds = (snapLeaguePreds || []).filter((p: any) => p.user_id === profile.id);
+          const userTop4 = new Set<number>();
+          let userBottom: number | null = null;
+
+          preds.forEach((pred: any) => {
+            const actualPos = snapActualMap[pred.team_id];
+            if (actualPos) {
+              const diff = Math.abs(actualPos - pred.predicted_position);
+              const basePoints = 100 - diff * 10;
+
+              let battlefieldBonus = 0;
+              const sd = snapStandingsMap[pred.team_id];
+              if (sd) {
+                const tps = Math.max(0, sd.points + sd.nrr * 10);
+                battlefieldBonus = Math.round(tps * (1 / (1 + (diff * diff) / 2)));
+              }
+
+              let teamBonus = 0;
+              if (pred.predicted_position <= 4 && snapTop4.has(pred.team_id)) teamBonus += 50;
+              if (pred.predicted_position === 10 && pred.team_id === snapBottom) teamBonus += 50;
+
+              score += Math.round((basePoints + battlefieldBonus + teamBonus) * pred.multiplier);
+            }
+          });
+
+          const ko = (snapKnockoutPreds || []).find((k: any) => k.user_id === profile.id);
+          if (ko && snapKnockouts) {
+            const actualFinalists = [snapKnockouts.finalist_1_id, snapKnockouts.finalist_2_id].filter(Boolean);
+            if (ko.finalist_1_id && actualFinalists.includes(ko.finalist_1_id)) score += 100;
+            if (ko.finalist_2_id && actualFinalists.includes(ko.finalist_2_id)) score += 100;
+            if (snapKnockouts.winner_id && ko.winner_id === snapKnockouts.winner_id) score += 200;
+          }
+
+          return { id: profile.id, score };
+        });
+
+        // Only rank users with actual predictions (mirrors Arena's activeProfiles filter)
+        const activeSnapScored = snapScored.filter((p: any) => p.score > 0);
+        activeSnapScored.sort((a: any, b: any) => b.score - a.score);
+
+        const snapshotRows = activeSnapScored.map((p: any, i: number) => ({
+          user_id: p.id,
+          rank: i + 1,
+          score: p.score,
+          snapshot_at: new Date().toISOString(),
+        }));
+
+        const { error: snapErr } = await supabase
+          .from("leaderboard_snapshots")
+          .upsert(snapshotRows, { onConflict: "user_id" });
+
+        if (snapErr) console.warn("Snapshot failed (non-fatal):", snapErr.message);
+      }
+      // ── End snapshot ─────────────────────────────────────────────────────────
+
       const standingsToSave = teams.map((team, index) => ({
         team_id: team.id, current_position: index + 1, matches_played: Number(team.matches_played) || 0, wins: Number(team.wins) || 0, losses: Number(team.losses) || 0, no_results: Number(team.no_results) || 0, net_run_rate: Number(team.net_run_rate) || 0, points: Number(team.points) || 0, updated_at: new Date().toISOString(),
       }));

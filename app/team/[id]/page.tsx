@@ -143,12 +143,22 @@ export default function OpponentTeamPage() {
       let bonus = 0;
       let bonusReason = null;
       
+      const standingData = standingsMap[pred.team_id];
+      let battlefieldTPS = 0;
+      let battlefieldPF = 0;
+      let battlefieldBonus = 0;
+
       if (liveRank !== null) {
         const diff = Math.abs(liveRank - pred.predicted_position);
         penalty = diff * 10;
         subtotal = 100 - penalty;
-        multipliedTotal = subtotal * pred.multiplier;
-        
+
+        if (standingData) {
+          battlefieldTPS = Math.max(0, standingData.points + standingData.nrr * 10);
+          battlefieldPF = 1 / (1 + (diff * diff) / 2);
+          battlefieldBonus = Math.round(battlefieldTPS * battlefieldPF);
+        }
+
         if (pred.predicted_position <= 4 && actualTop4.has(pred.team_id)) {
           bonus += 50;
           bonusReason = "Top 4 Correct";
@@ -157,21 +167,12 @@ export default function OpponentTeamPage() {
           bonus += 50;
           bonusReason = "10th Place Correct";
         }
+
+        // Multiplier applied to base + battlefield + positional bonus
+        multipliedTotal = Math.round((subtotal + battlefieldBonus + bonus) * pred.multiplier);
       }
 
-      const finalRowPoints = multipliedTotal + bonus;
-
-      // Battlefield Bonus — independent of multiplier
-      const standingData = standingsMap[pred.team_id];
-      let battlefieldTPS = 0;
-      let battlefieldPF = 0;
-      let battlefieldBonus = 0;
-      if (standingData && liveRank !== null) {
-        battlefieldTPS = Math.max(0, standingData.points + standingData.nrr * 10);
-        const delta = Math.abs(liveRank - pred.predicted_position);
-        battlefieldPF = 1 / (1 + (delta * delta) / 2);
-        battlefieldBonus = Math.round(battlefieldTPS * battlefieldPF);
-      }
+      const finalRowPoints = multipliedTotal;
 
       return {
         ...team,
@@ -367,7 +368,7 @@ export default function OpponentTeamPage() {
                 <span>Base Points</span>
                 <span className="font-bold">{selectedTeam.breakdown.basePoints}</span>
               </div>
-              
+
               <div className="flex justify-between items-center text-red-400">
                 <span>Rank Penalty <span className="text-[10px] text-gray-500">({Math.abs((selectedTeam.breakdown.liveRank || 0) - selectedTeam.breakdown.predictedRank)} off)</span></span>
                 <span className="font-bold">-{selectedTeam.breakdown.penalty}</span>
@@ -378,10 +379,20 @@ export default function OpponentTeamPage() {
                 <span className="font-bold text-white">{selectedTeam.breakdown.subtotal}</span>
               </div>
 
-              {selectedTeam.breakdown.multiplier > 1 && (
-                <div className={`flex justify-between items-center font-bold ${selectedTeam.breakdown.multiplier === 3 ? 'text-yellow-500' : 'text-cyan-400'}`}>
-                  <span>Multiplier Applied</span>
-                  <span>x{selectedTeam.breakdown.multiplier}</span>
+              {selectedTeam.breakdown.liveRank !== null && selectedTeam.breakdown.battlefieldBonus > 0 && (
+                <div className="border border-amber-500/20 rounded-xl p-2.5 space-y-1.5 bg-amber-500/5">
+                  <div className="flex justify-between items-center text-gray-400 text-xs">
+                    <span>Team Performance</span>
+                    <span className="font-bold">{selectedTeam.breakdown.battlefieldTPS}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-gray-400 text-xs">
+                    <span>Prediction Factor</span>
+                    <span className="font-bold">&#215;{selectedTeam.breakdown.battlefieldPF.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-amber-400 font-black border-t border-amber-500/20 pt-1.5">
+                    <span>&#9876; Battlefield</span>
+                    <span>+{selectedTeam.breakdown.battlefieldBonus}</span>
+                  </div>
                 </div>
               )}
 
@@ -392,33 +403,18 @@ export default function OpponentTeamPage() {
                 </div>
               )}
 
+              {selectedTeam.breakdown.multiplier > 1 && (
+                <div className={`flex justify-between items-center font-black text-base border-t border-white/10 pt-2 ${selectedTeam.breakdown.multiplier === 3 ? 'text-yellow-500' : 'text-cyan-400'}`}>
+                  <span>&#10005;{selectedTeam.breakdown.multiplier} Multiplier</span>
+                  <span>&#215;{selectedTeam.breakdown.multiplier}</span>
+                </div>
+              )}
+
               <div className="flex justify-between items-center border-t border-white/20 pt-3 mt-2 text-lg font-black text-white">
                 <span>FINAL POINTS</span>
                 <span>{selectedTeam.breakdown.finalRowPoints}</span>
               </div>
             </div>
-
-            {selectedTeam.breakdown.liveRank !== null && (
-              <div className="mt-4 border-t border-amber-500/30 pt-4 space-y-2 font-mono text-sm">
-                <div className="text-[10px] font-black text-amber-500/60 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <span className="flex-1 border-t border-amber-500/20"></span>
-                  BATTLEFIELD BONUS
-                  <span className="flex-1 border-t border-amber-500/20"></span>
-                </div>
-                <div className="flex justify-between items-center text-gray-400">
-                  <span>Team Performance</span>
-                  <span className="font-bold">{selectedTeam.breakdown.battlefieldTPS}</span>
-                </div>
-                <div className="flex justify-between items-center text-gray-400">
-                  <span>Prediction Factor</span>
-                  <span className="font-bold">&#215;{selectedTeam.breakdown.battlefieldPF.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center text-amber-400 font-black text-base border-t border-amber-500/20 pt-2 mt-1">
-                  <span>&#9876; Battlefield Bonus</span>
-                  <span>+{selectedTeam.breakdown.battlefieldBonus}</span>
-                </div>
-              </div>
-            )}
 
             <button onClick={() => setSelectedTeam(null)} className="w-full mt-8 py-3 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition-colors tracking-widest uppercase text-sm">
               Close Report
